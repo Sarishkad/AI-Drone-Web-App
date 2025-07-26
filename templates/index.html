@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8" />
     <title>Drone Data Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         :root {
             --bg-color: #1a1a1a;
@@ -95,26 +97,9 @@
             text-align: left;
         }
 
-        th {
-            font-weight: 600;
-        }
-
-        td {
-            color: var(--text-color);
-        }
-
         #log-body {
             overflow-y: auto;
             max-height: 300px;
-        }
-
-        #log-body::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        #log-body::-webkit-scrollbar-thumb {
-            background: var(--border-color);
-            border-radius: 4px;
         }
 
         .drone {
@@ -122,8 +107,6 @@
             justify-content: space-between;
             align-items: flex-start;
             font-size: 16px;
-            color: var(--text-color);
-            height: 100%;
             gap: 15px;
         }
 
@@ -180,10 +163,6 @@
                 grid-template-rows: repeat(4, 1fr);
             }
 
-            .section {
-                padding: 15px;
-            }
-
             .status-box {
                 width: 100%;
             }
@@ -194,26 +173,20 @@
             }
         }
     </style>
-
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 
 <body>
     <div class="grid">
-        <!-- Video Feed -->
         <div class="section">
             <h4>Drone Camera Live Video</h4>
             <img id="video-feed" src="/video" alt="Video Feed" />
         </div>
 
-        <!-- Map -->
         <div class="section">
             <h4>Location of Drone & Detections</h4>
             <div id="map"></div>
         </div>
 
-        <!-- Detection Log -->
         <div class="section">
             <h4>Detection Data Log</h4>
             <table>
@@ -225,13 +198,10 @@
                         <th>Severity</th>
                     </tr>
                 </thead>
-                <tbody id="log-body">
-                    <!-- Filled dynamically -->
-                </tbody>
+                <tbody id="log-body"></tbody>
             </table>
         </div>
 
-        <!-- Drone Status and Controls -->
         <div class="section">
             <h4>Drone Data & Controls</h4>
             <div class="drone">
@@ -258,29 +228,43 @@
     <script>
         const map = L.map('map').setView([18.516726, 73.856255], 13);
 
-        // Satellite tile layer -- https://{s}.basemaps.cartocdn.com/voyager/{z}/{x}/{y}.png
-        // Normal Map View -- https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
+        const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19
+        });
 
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/voyager/{z}/{x}/{y}.png').addTo(map);
+        const light = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        });
+
+        const satellite = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+            maxZoom: 20
+        });
+
+        dark.addTo(map); // Default
+        L.control.layers({ "Dark": dark, "Light": light, "Satellite": satellite }).addTo(map);
 
         let droneMarker = null;
+        let dronePath = [];
+        const dronePolyline = L.polyline([], { color: '#00e676', weight: 3 }).addTo(map);
 
         function updateLog() {
             fetch('/log')
-                .then(response => response.json())
+                .then(res => res.json())
                 .then(data => {
                     const tbody = document.getElementById("log-body");
-                    tbody.innerHTML = '';  // Clear the log table
+                    tbody.innerHTML = '';
                     data.slice(-10).reverse().forEach(entry => {
                         const row = `<tr>
-                            <td>${entry.id}</td>
-                            <td>${entry.time}</td>
-                            <td>${entry.location}</td>
-                            <td>${entry.severity}</td>
-                        </tr>`;
+              <td>${entry.id}</td>
+              <td>${entry.time}</td>
+              <td>${entry.location}</td>
+              <td>${entry.severity}</td>
+            </tr>`;
                         tbody.innerHTML += row;
 
-                        // Adding detection markers
                         const [lat, lon] = entry.location.split(',').map(Number);
                         L.marker([lat, lon]).addTo(map).bindPopup(`Detection ${entry.id}`);
                     });
@@ -293,7 +277,7 @@
 
         function updateStatus() {
             fetch('/telemetry')
-                .then(response => response.json())
+                .then(res => res.json())
                 .then(status => {
                     document.getElementById('battery').innerText = status.battery;
                     document.getElementById('gps_fix').innerText = status.gps_fix ? "Fix" : "No Fix";
@@ -302,25 +286,26 @@
                     document.getElementById('armed').innerText = status.armed ? "Yes" : "No";
                     document.getElementById('mode').innerText = status.mode;
 
-                    // Remove previous drone marker if exists
-                    if (droneMarker) map.removeLayer(droneMarker);
-
                     if (status.latitude && status.longitude) {
-                        // Add new drone marker
-                        droneMarker = L.marker([status.latitude, status.longitude], {
+                        const position = [status.latitude, status.longitude];
+
+                        // Drone marker
+                        if (droneMarker) map.removeLayer(droneMarker);
+                        droneMarker = L.marker(position, {
                             icon: L.icon({
                                 iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
                                 iconSize: [30, 30]
                             })
                         }).addTo(map).bindPopup("Drone Location");
 
-                        // Center map on drone's location
-                        map.setView([status.latitude, status.longitude], 13);
+                        dronePath.push(position);
+                        dronePolyline.setLatLngs(dronePath);
+
+                        map.setView(position, 13);
                     }
                 })
                 .catch(err => console.error("Telemetry fetch failed:", err));
         }
-
 
         setInterval(updateLog, 5000);
         setInterval(updateStatus, 2000);
