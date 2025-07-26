@@ -14,12 +14,12 @@ model = YOLO('Pothole-Detection/best.pt')
 # model = YOLO('Garbage-Detection/best.pt')
 
 RTSP_STREAM_URL = 0
-# RTSP_STREAM_URL = "rtsp://IP/stream"
+# RTSP_STREAM_URL = "rtsp://192.168.137.53:554/stream"
 
 print("Using CUDA:", torch.cuda.is_available())
 
 # MAVLink connection
-MAVLINK_PORT = "YOUR TELEMETRY PORT HERE"  # e.g., "/dev/ttyUSB0" or "udp:
+MAVLINK_PORT = "COM5"
 MAVLINK_BAUD = 57600
 
 print("Connecting to Drone via MAVLink telemetry...")
