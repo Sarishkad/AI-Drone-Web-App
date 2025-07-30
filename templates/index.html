@@ -4,8 +4,6 @@
 <head>
     <meta charset="UTF-8" />
     <title>Drone Data Dashboard</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         :root {
             --bg-color: #1a1a1a;
@@ -226,29 +224,29 @@
     </div>
 
     <script>
-        const map = L.map('map').setView([18.516726, 73.856255], 13);
-
-        const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 19
-        });
-
-        const light = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
-        });
-
-        const satellite = L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
-            subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-            maxZoom: 20
-        });
-
-        dark.addTo(map); // Default
-        L.control.layers({ "Dark": dark, "Light": light, "Satellite": satellite }).addTo(map);
-
+        let map;
         let droneMarker = null;
         let dronePath = [];
-        const dronePolyline = L.polyline([], { color: '#00e676', weight: 3 }).addTo(map);
+        let dronePolyline;
+
+        function initMap() {
+            const start = { lat: 18.516726, lng: 73.856255 };
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 13,
+                center: start,
+                mapTypeId: 'hybrid',
+            });
+
+            dronePolyline = new google.maps.Polyline({
+                path: [],
+                geodesic: true,
+                strokeColor: '#00e676',
+                strokeOpacity: 1.0,
+                strokeWeight: 2,
+            });
+
+            dronePolyline.setMap(map);
+        }
 
         function updateLog() {
             fetch('/log')
@@ -258,15 +256,19 @@
                     tbody.innerHTML = '';
                     data.slice(-10).reverse().forEach(entry => {
                         const row = `<tr>
-              <td>${entry.id}</td>
-              <td>${entry.time}</td>
-              <td>${entry.location}</td>
-              <td>${entry.severity}</td>
-            </tr>`;
+                            <td>${entry.id}</td>
+                            <td>${entry.time}</td>
+                            <td>${entry.location}</td>
+                            <td>${entry.severity}</td>
+                        </tr>`;
                         tbody.innerHTML += row;
 
                         const [lat, lon] = entry.location.split(',').map(Number);
-                        L.marker([lat, lon]).addTo(map).bindPopup(`Detection ${entry.id}`);
+                        const detectionMarker = new google.maps.Marker({
+                            position: { lat, lng: lon },
+                            map: map,
+                            title: `Detection ${entry.id}`
+                        });
                     });
                 });
         }
@@ -287,21 +289,23 @@
                     document.getElementById('mode').innerText = status.mode;
 
                     if (status.latitude && status.longitude) {
-                        const position = [status.latitude, status.longitude];
+                        const position = { lat: status.latitude, lng: status.longitude };
 
-                        // Drone marker
-                        if (droneMarker) map.removeLayer(droneMarker);
-                        droneMarker = L.marker(position, {
-                            icon: L.icon({
-                                iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
-                                iconSize: [30, 30]
-                            })
-                        }).addTo(map).bindPopup("Drone Location");
+                        if (droneMarker) droneMarker.setMap(null);
+
+                        droneMarker = new google.maps.Marker({
+                            position: position,
+                            map: map,
+                            icon: {
+                                url: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
+                                scaledSize: new google.maps.Size(30, 30)
+                            },
+                            title: "Drone Location"
+                        });
 
                         dronePath.push(position);
-                        dronePolyline.setLatLngs(dronePath);
-
-                        map.setView(position, 13);
+                        dronePolyline.setPath(dronePath);
+                        map.setCenter(position);
                     }
                 })
                 .catch(err => console.error("Telemetry fetch failed:", err));
@@ -309,8 +313,11 @@
 
         setInterval(updateLog, 5000);
         setInterval(updateStatus, 2000);
-        updateLog();
-        updateStatus();
+
+        window.initMap = initMap;
+    </script>
+
+    <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyD-hTQrtpPYyQZ49NhuMFAppgacyO89LBA&callback=initMap">
     </script>
 </body>
 
